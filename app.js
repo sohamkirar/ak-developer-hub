@@ -1,93 +1,24 @@
 
 const USER = "sohamkirar";
 const API = "https://api.github.com";
+
 const $ = (id) => document.getElementById(id);
-const number = (n) => new Intl.NumberFormat("en").format(n || 0);
-const cacheKey = "ak-hub-github-cache-v2";
 
-function readCache() {
-  try {
-    return JSON.parse(localStorage.getItem(cacheKey) || "null");
-  } catch {
-    return null;
-  }
-}
+const number = (n) =>
+  new Intl.NumberFormat("en").format(n || 0);
 
-function saveCache(data) {
-  try {
-    localStorage.setItem(
-      cacheKey,
-      JSON.stringify({ time: Date.now(), data })
-    );
-  } catch (error) {
-    console.warn("Could not save GitHub cache:", error);
-  }
-}
+const roles = [
+  "AI & Full Stack Developer",
+  "Building useful digital products",
+  "Exploring AI / ML & software"
+];
 
-async function githubJSON(path) {
-  const response = await fetch(`${API}${path}`, {
-    headers: {
-      Accept: "application/vnd.github+json"
-    },
-    cache: "no-store"
-  });
+let roleIndex = 0;
+let isRefreshing = false;
 
-  if (!response.ok) {
-    if (response.status === 403 || response.status === 429) {
-      throw new Error("GitHub API rate limit reached. Try again later.");
-    }
-
-    if (response.status === 404) {
-      throw new Error("GitHub profile or resource not found.");
-    }
-
-    throw new Error(`GitHub API error: ${response.status}`);
-  }
-
-  return response.json();
-}
-
-function setStat(id, value) {
-  const element = $(id);
-  if (element) element.textContent = number(value);
-}
-
-function setStatus(message, state = "normal") {
+function setStatus(message) {
   const status = $("apiStatus");
-  if (!status) return;
-
-  status.textContent = message;
-  status.dataset.state = state;
-}
-
-function makeStatusClickable() {
-  const status = $("apiStatus");
-  if (!status) return;
-
-  status.setAttribute("role", "button");
-  status.setAttribute("tabindex", "0");
-  status.setAttribute("aria-label", "Refresh GitHub statistics");
-  status.setAttribute("title", "Click to refresh GitHub data");
-  status.style.cursor = "pointer";
-  status.style.userSelect = "none";
-  status.style.transition = "opacity 0.2s ease";
-
-  status.addEventListener("click", () => loadGitHub(true));
-
-  status.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      loadGitHub(true);
-    }
-  });
-
-  status.addEventListener("mouseenter", () => {
-    status.style.opacity = "0.65";
-  });
-
-  status.addEventListener("mouseleave", () => {
-    status.style.opacity = "1";
-  });
+  if (status) status.textContent = message;
 }
 
 function timeAgo(date) {
@@ -103,101 +34,110 @@ function timeAgo(date) {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function eventDescription(event) {
-  const repo = (event.repo?.name || "").replace(`${USER}/`, "");
+async function githubJSON(path) {
+  const response = await fetch(`${API}${path}`, {
+    headers: {
+      Accept: "application/vnd.github+json"
+    },
+    cache: "no-store"
+  });
 
-  const descriptions = {
-    PushEvent: `Pushed code to <b>${repo}</b>`,
-    CreateEvent: `Created a branch or repository in <b>${repo}</b>`,
-    WatchEvent: `Starred <b>${repo}</b>`,
-    ForkEvent: `Forked <b>${repo}</b>`,
-    IssuesEvent: `Updated an issue in <b>${repo}</b>`,
-    PullRequestEvent: `Worked on a pull request in <b>${repo}</b>`,
-    ReleaseEvent: `Published a release in <b>${repo}</b>`,
-    PublicEvent: `Made <b>${repo}</b> public`
-  };
+  if (!response.ok) {
+    throw new Error(`GitHub API error: ${response.status}`);
+  }
 
-  return descriptions[event.type] ||
-    `Activity in <b>${repo || "GitHub"}</b> · ${event.type.replace("Event", "")}`;
+  return response.json();
 }
 
 function renderEvents(events) {
   const list = $("eventList");
+
   if (!list) return;
 
-  if (!events || !events.length) {
+  if (!events.length) {
     list.innerHTML =
-      '<p class="loading">No recent public events found. Your public activity will appear here when GitHub reports it.</p>';
+      '<p class="loading">No recent public activity found.</p>';
     return;
   }
 
-  list.innerHTML = events.slice(0, 7).map(event => `
-    <div class="event-row">
-      <span class="event-dot"></span>
-      <div class="event-title">
-        ${eventDescription(event)}
-        <div class="event-meta">
-          ${event.type.replace("Event", "")} ·
-          <a href="https://github.com/${event.repo.name}"
-             target="_blank" rel="noreferrer">
-            ${event.repo.name}
-          </a>
+  list.innerHTML = events.slice(0, 7).map(event => {
+    const repo = event.repo?.name || "GitHub";
+
+    const descriptions = {
+      PushEvent: "Pushed code to",
+      CreateEvent: "Created a branch or repository in",
+      WatchEvent: "Starred",
+      ForkEvent: "Forked",
+      IssuesEvent: "Updated an issue in",
+      PullRequestEvent: "Worked on a pull request in",
+      ReleaseEvent: "Published a release in"
+    };
+
+    const description =
+      descriptions[event.type] || "Activity in";
+
+    return `
+      <div class="event-row">
+        <span class="event-dot"></span>
+        <div class="event-title">
+          ${description} <b>${repo}</b>
+          <div class="event-meta">
+            ${event.type.replace("Event", "")} ·
+            <a href="https://github.com/${repo}"
+               target="_blank" rel="noreferrer">${repo}</a>
+          </div>
         </div>
+        <span class="event-meta">
+          ${timeAgo(event.created_at)}
+        </span>
       </div>
-      <span class="event-meta">${timeAgo(event.created_at)}</span>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 function renderProjects(repos) {
-  const featured = [
+  const projects = [
     {
       name: "ThinkMate AI",
       tag: "AI PRODUCT",
       symbol: "✳",
-      description: "An AI-powered thinking and productivity assistant concept.",
-      match: ["thinkmate"]
+      description: "An AI-powered thinking and productivity assistant.",
+      match: "thinkmate"
     },
     {
       name: "TIMECRAFT AI",
       tag: "PRODUCTIVITY",
       symbol: "◷",
       description: "An AI-assisted timetable and planning experience.",
-      match: ["timecraft"]
+      match: "timecraft"
     },
     {
       name: "RADIX AI",
       tag: "AI / HEALTH TECH",
       symbol: "⌬",
-      description: "An AI-assisted radiology decision-support project concept.",
-      match: ["radix"]
+      description: "An AI-assisted radiology decision-support platform.",
+      match: "radix"
     },
     {
       name: "EventSphere",
       tag: "JAVA / WEB",
       symbol: "▦",
-      description: "Online event management system using Java, JSP, Servlets and MySQL.",
-      match: ["eventsphere"]
+      description: "Online event management using Java and MySQL.",
+      match: "eventsphere"
     }
   ];
 
   const grid = $("projectGrid");
   if (!grid) return;
 
-  const cards = featured.map(project => {
-    const repo = repos.find(repository =>
-      project.match.some(match =>
-        repository.name.toLowerCase().includes(match)
-      )
+  grid.innerHTML = projects.map(project => {
+    const repo = repos.find(r =>
+      r.name.toLowerCase().includes(project.match)
     );
 
-    const href = repo
+    const url = repo
       ? repo.html_url
       : `https://github.com/${USER}?tab=repositories`;
-
-    const label = repo
-      ? "Open repository ↗"
-      : "Find project repository ↗";
 
     return `
       <article class="project-card">
@@ -207,200 +147,165 @@ function renderProjects(repos) {
         </div>
         <h3>${project.name}</h3>
         <p>${project.description}</p>
-        <a href="${href}" target="_blank" rel="noreferrer">
-          ${label}
+        <a href="${url}" target="_blank" rel="noreferrer">
+          Open repository ↗
         </a>
-        ${repo ? `
-          <div class="repo-mini">
-            ${repo.language || "Repository"} · ★ ${number(repo.stargazers_count)}
-          </div>
-        ` : ""}
+        ${
+          repo
+            ? `<div class="repo-mini">
+                ${repo.language || "Repository"} ·
+                ★ ${number(repo.stargazers_count)}
+              </div>`
+            : ""
+        }
       </article>
     `;
   }).join("");
-
-  grid.innerHTML = cards;
 }
 
 function applyData({ user, repos, events }) {
-  if (user) {
-    if ($("avatar")) $("avatar").src = user.avatar_url;
-    if ($("profileName")) {
-      $("profileName").textContent = user.name || USER;
-    }
-    if ($("profileBio")) {
-      $("profileBio").textContent =
-        user.bio || "AI & Full Stack Developer · Exploring ideas and building products.";
-    }
+  if ($("avatar")) $("avatar").src = user.avatar_url;
 
-    setStat("repoCount", user.public_repos);
-    setStat("followerCount", user.followers);
+  if ($("profileName")) {
+    $("profileName").textContent = user.name || USER;
   }
 
-  if (repos) {
-    setStat(
-      "starCount",
+  if ($("profileBio")) {
+    $("profileBio").textContent =
+      user.bio || "AI & Full Stack Developer · Building products.";
+  }
+
+  if ($("repoCount")) {
+    $("repoCount").textContent = number(user.public_repos);
+  }
+
+  if ($("followerCount")) {
+    $("followerCount").textContent = number(user.followers);
+  }
+
+  if ($("starCount")) {
+    $("starCount").textContent = number(
       repos.reduce((sum, repo) => sum + repo.stargazers_count, 0)
     );
+  }
 
-    setStat(
-      "forkCount",
+  if ($("forkCount")) {
+    $("forkCount").textContent = number(
       repos.reduce((sum, repo) => sum + repo.forks_count, 0)
     );
-
-    renderProjects(repos);
   }
 
-  if (events !== undefined) {
-    renderEvents(events);
-  }
+  renderProjects(repos);
+  renderEvents(events);
 }
-
-let isLoading = false;
 
 async function loadGitHub(force = false) {
-  if (isLoading) return;
+  if (isRefreshing) return;
 
-  const cached = readCache();
+  isRefreshing = true;
 
-  if (
-    cached &&
-    cached.data &&
-    !force &&
-    Date.now() - cached.time < 10 * 60 * 1000
-  ) {
-    applyData(cached.data);
-    setStatus("CONNECTED · CACHED GITHUB DATA", "success");
-    return;
+  const button = $("refreshBtn");
+  const originalText = button
+    ? button.textContent
+    : "↻ Refresh data";
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "↻ Refreshing...";
   }
 
-  isLoading = true;
+  setStatus("CONNECTING TO GITHUB API...");
 
-  const refreshButton = $("refreshBtn");
-  if (refreshButton) {
-    refreshButton.disabled = true;
-    refreshButton.textContent = "↻ Loading...";
-  }
-
-  setStatus("CONNECTING TO GITHUB API...", "loading");
+  const cached = !force
+    ? readCache()
+    : null;
 
   try {
-    // Load profile and repositories independently of the activity feed.
-    const [user, repos] = await Promise.all([
+    if (cached && Date.now() - cached.time < 600000) {
+      applyData(cached.data);
+      setStatus("CONNECTED · CACHED GITHUB DATA");
+      return;
+    }
+
+    const [user, repos, events] = await Promise.all([
       githubJSON(`/users/${USER}`),
-      githubJSON(`/users/${USER}/repos?per_page=100&sort=updated`)
+      githubJSON(`/users/${USER}/repos?per_page=100&sort=updated`),
+      githubJSON(`/users/${USER}/events/public?per_page=7`)
     ]);
 
-    const data = {
-      user,
-      repos,
-      events: []
-    };
+    const data = { user, repos, events };
 
-    // Display statistics immediately.
-    applyData(data);
-
-    saveCache(data);
-
-    setStatus("CONNECTED · LIVE GITHUB DATA", "success");
-
-    // Activity feed is optional; its failure must not break statistics.
     try {
-      const events = await githubJSON(
-        `/users/${USER}/events/public?per_page=7`
+      localStorage.setItem(
+        "ak-hub-github-cache-v3",
+        JSON.stringify({
+          time: Date.now(),
+          data
+        })
       );
-
-      data.events = events;
-      renderEvents(events);
-      saveCache(data);
-
-    } catch (activityError) {
-      console.warn("GitHub activity feed unavailable:", activityError);
-
-      renderEvents([]);
-
-      setStatus(
-        "CONNECTED · ACTIVITY FEED UNAVAILABLE",
-        "success"
-      );
+    } catch (error) {
+      console.warn("Cache unavailable:", error);
     }
+
+    applyData(data);
+    setStatus("CONNECTED · LIVE PUBLIC GITHUB DATA");
 
   } catch (error) {
-    console.error("GitHub API error:", error);
+    console.error("GitHub refresh failed:", error);
 
-    if (cached && cached.data) {
-      applyData(cached.data);
+    setStatus("API ERROR · CLICK REFRESH TO RETRY");
 
-      setStatus("OFFLINE · SHOWING CACHED DATA", "warning");
-    } else {
-      setStatus("API UNAVAILABLE · CLICK TO RETRY", "error");
-
-      const list = $("eventList");
-
-      if (list) {
-        list.innerHTML = `
-          <p class="loading">
-            ${escapeHTML(error.message)}
-            · Click the status above to retry.
-          </p>
-        `;
-      }
+    if ($("eventList")) {
+      $("eventList").innerHTML = `
+        <p class="loading">
+          Unable to load GitHub data: ${error.message}
+        </p>
+      `;
     }
-
   } finally {
-    isLoading = false;
+    isRefreshing = false;
 
-    if (refreshButton) {
-      refreshButton.disabled = false;
-      refreshButton.textContent = "↻ Refresh data";
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
     }
   }
 }
 
-const roles = [
-  "AI & Full Stack Developer",
-  "Building useful digital products",
-  "Exploring AI / ML & software"
-];
-
-let roleIndex = 0;
-
-setInterval(() => {
-  const role = $("typedRole");
-  if (!role) return;
-
-  roleIndex = (roleIndex + 1) % roles.length;
-  role.textContent = roles[roleIndex];
-}, 2800);
-
-const output = $("terminalOutput");
-
-function terminalLine(html, cls = "") {
-  if (!output) return;
-
-  const paragraph = document.createElement("p");
-
-  if (cls) paragraph.className = cls;
-
-  paragraph.innerHTML = html;
-  output.appendChild(paragraph);
-  output.scrollTop = output.scrollHeight;
+function readCache() {
+  try {
+    const value = localStorage.getItem("ak-hub-github-cache-v3");
+    return value ? JSON.parse(value) : null;
+  } catch {
+    return null;
+  }
 }
 
 function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, character => ({
+  return String(value).replace(/[&<>"']/g, char => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
     '"': "&quot;",
     "'": "&#39;"
-  })[character]);
+  })[char]);
+}
+
+function terminalLine(html, cls = "") {
+  const output = $("terminalOutput");
+  if (!output) return;
+
+  const p = document.createElement("p");
+  if (cls) p.className = cls;
+  p.innerHTML = html;
+
+  output.appendChild(p);
+  output.scrollTop = output.scrollHeight;
 }
 
 function runCommand(raw) {
-  const command = raw.trim().toLowerCase();
-
-  if (!command) return;
+  const cmd = raw.trim().toLowerCase();
+  if (!cmd) return;
 
   terminalLine(
     `<span style="color:#63d8ff">soham@ak-hub:~$</span> ${escapeHTML(raw)}`
@@ -408,100 +313,109 @@ function runCommand(raw) {
 
   const commands = {
     help: () => terminalLine(
-      "Available commands: <b>help</b>, <b>about</b>, <b>projects</b>, <b>stats</b>, <b>contact</b>, <b>clear</b>"
+      "Available commands: help, about, projects, stats, contact, clear"
     ),
 
     about: () => terminalLine(
-      "I'm Soham Kirar — exploring AI, machine learning and full-stack development. I learn by building practical products."
+      "I'm Soham Kirar — exploring AI, machine learning and full-stack development."
     ),
 
     projects: () => {
-      terminalLine(
-        "Featured builds: <b>ThinkMate AI</b> · <b>TIMECRAFT AI</b> · <b>RADIX AI</b> · <b>EventSphere</b>"
-      );
-
-      document.querySelector("#projects")?.scrollIntoView({
-        behavior: "smooth"
-      });
+      terminalLine("Opening featured projects...");
+      $("projects")?.scrollIntoView({ behavior: "smooth" });
     },
 
     stats: () => {
-      terminalLine(
-        "Loading public GitHub statistics above. <a href='https://github.com/sohamkirar' target='_blank' rel='noreferrer'>Open GitHub profile ↗</a>"
-      );
-
-      document.querySelector("#home")?.scrollIntoView({
-        behavior: "smooth"
-      });
+      terminalLine("Loading GitHub statistics...");
+      $("home")?.scrollIntoView({ behavior: "smooth" });
+      loadGitHub(true);
     },
 
     contact: () => terminalLine(
-      "Connect: <a href='https://github.com/sohamkirar' target='_blank' rel='noreferrer'>github.com/sohamkirar ↗</a>"
+      '<a href="https://github.com/sohamkirar" target="_blank">Connect on GitHub ↗</a>'
     ),
 
     clear: () => {
-      if (output) output.innerHTML = "";
+      $("terminalOutput").innerHTML = "";
     }
   };
 
-  if (commands[command]) {
-    commands[command]();
+  if (commands[cmd]) {
+    commands[cmd]();
   } else {
     terminalLine(
-      `Command not found: <b>${escapeHTML(command)}</b>. Type <b>help</b> to see available commands.`,
+      `Command not found: ${escapeHTML(cmd)}. Type help.`,
       "terminal-muted"
     );
   }
 }
 
-const terminalForm = $("terminalForm");
+function initializeDashboard() {
+  console.log("AK Developer Hub initialized.");
 
-if (terminalForm) {
-  terminalForm.addEventListener("submit", event => {
-    event.preventDefault();
+  const refreshButton = $("refreshBtn");
 
-    const input = $("terminalInput");
-    if (!input) return;
+  if (refreshButton) {
+    refreshButton.addEventListener("click", event => {
+      event.preventDefault();
+      loadGitHub(true);
+    });
 
-    runCommand(input.value);
-    input.value = "";
+    refreshButton.disabled = false;
+    refreshButton.style.pointerEvents = "auto";
+  } else {
+    console.error("Refresh button not found in index.html");
+  }
+
+  const form = $("terminalForm");
+
+  if (form) {
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+
+      const input = $("terminalInput");
+      if (!input) return;
+
+      runCommand(input.value);
+      input.value = "";
+    });
+  }
+
+  $("clearTerminal")?.addEventListener("click", () => {
+    if ($("terminalOutput")) {
+      $("terminalOutput").innerHTML = "";
+    }
   });
-}
 
-document.querySelectorAll("[data-command]").forEach(button => {
-  button.addEventListener("click", () => {
-    runCommand(button.dataset.command);
+  document.querySelectorAll("[data-command]").forEach(button => {
+    button.addEventListener("click", () => {
+      runCommand(button.dataset.command);
+    });
   });
-});
 
-const clearButton = $("clearTerminal");
-
-if (clearButton) {
-  clearButton.addEventListener("click", () => {
-    if (output) output.innerHTML = "";
-  });
-}
-
-const refreshButton = $("refreshBtn");
-
-if (refreshButton) {
-  refreshButton.addEventListener("click", () => loadGitHub(true));
-}
-
-makeStatusClickable();
-
-const menuToggle = $("menuToggle");
-
-if (menuToggle) {
-  menuToggle.addEventListener("click", () => {
+  $("menuToggle")?.addEventListener("click", () => {
     document.querySelector(".nav")?.classList.toggle("open");
   });
+
+  document.querySelectorAll(".nav a").forEach(link => {
+    link.addEventListener("click", () => {
+      document.querySelector(".nav")?.classList.remove("open");
+    });
+  });
+
+  setInterval(() => {
+    roleIndex = (roleIndex + 1) % roles.length;
+
+    if ($("typedRole")) {
+      $("typedRole").textContent = roles[roleIndex];
+    }
+  }, 2800);
+
+  loadGitHub(false);
 }
 
-document.querySelectorAll(".nav a").forEach(link => {
-  link.addEventListener("click", () => {
-    document.querySelector(".nav")?.classList.remove("open");
-  });
-});
-
-loadGitHub();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializeDashboard);
+} else {
+  initializeDashboard();
+}
